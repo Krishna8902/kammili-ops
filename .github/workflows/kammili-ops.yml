@@ -25,10 +25,9 @@ jobs:
           python build.py
           python render.py
           python brief.py
-      - name: Publish board
-        uses: cloudflare/pages-action@v1
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: kammili-ops   # TODO: replace with your actual Cloudflare Pages project name
-          directory: out
+          command: pages deploy out --project-name=kammili-ops
