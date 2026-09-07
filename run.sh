@@ -5,7 +5,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 [ -f .env ] && set -a && . ./.env && set +a
 
-python3 window_guard.py || exit 0
+python3 fetch/check_window.py || exit 0
 
 python3 fetch/ownerrez.py || echo "ownerrez fetch failed, using last dump" >&2
 python3 fetch/maintenance.py || echo "maintenance fetch failed, using last dump" >&2
