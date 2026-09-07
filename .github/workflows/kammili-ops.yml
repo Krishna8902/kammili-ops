@@ -1,0 +1,33 @@
+name: kammili-ops
+on:
+  schedule:
+    - cron: '*/30 6-22 * * *'   # every 30 min, 06:00-22:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run pipeline
+        env:
+          OWNERREZ_USER: ${{ secrets.OWNERREZ_USER }}
+          OWNERREZ_TOKEN: ${{ secrets.OWNERREZ_TOKEN }}
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GCAL_ICAL_URL: ${{ secrets.GCAL_ICAL_URL }}
+        run: |
+          for f in fetch/*.py; do python "$f"; done
+          python build.py
+          python render.py
+          python brief.py
+      - name: Publish board
+        run: |
+          git config user.name "kammili-ops-bot"
+          git config user.email "bot@kammiliproperties.uk"
+          git add -f out/index.html
+          git commit -m "ops board $(date -u +%FT%TZ)" || echo "no changes"
+          git push
