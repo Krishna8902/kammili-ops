@@ -26,9 +26,9 @@ jobs:
           python render.py
           python brief.py
       - name: Publish board
-        run: |
-          git config user.name "kammili-ops-bot"
-          git config user.email "bot@kammiliproperties.uk"
-          git add -f out/index.html
-          git commit -m "ops board $(date -u +%FT%TZ)" || echo "no changes"
-          git push
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: kammili-ops   # TODO: replace with your actual Cloudflare Pages project name
+          directory: out
