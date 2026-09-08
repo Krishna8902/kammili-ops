@@ -11,6 +11,7 @@ import json
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent
 RAW = ROOT / "raw"
@@ -176,6 +177,7 @@ def build():
 
     ops = {
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "updated": datetime.now(ZoneInfo("Europe/London")).isoformat(timespec="seconds"),
         "date": today.isoformat(),
         "data_age_minutes": int(book_age.total_seconds() / 60) if book_age else None,
         "arrivals": sorted(arrivals, key=lambda x: x["checkin"]),

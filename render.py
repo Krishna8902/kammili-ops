@@ -26,6 +26,13 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 .wrap{max-width:760px; margin:0 auto; padding:28px 20px 72px}
+.updated{display:inline-flex; align-items:center; gap:6px; font-size:13px;
+  font-weight:640; padding:4px 11px; border-radius:999px; margin:0 0 14px;
+  background:var(--band); color:var(--calm)}
+.updated::before{content:""; width:6px; height:6px; border-radius:50%;
+  background:currentColor; flex:none}
+.updated.amber{color:var(--watch)}
+.updated.red{color:var(--critical)}
 .meta{display:flex; justify-content:space-between; gap:12px;
   font-size:13px; color:var(--soft); letter-spacing:.01em}
 .stale{color:var(--critical); font-weight:600}
@@ -122,6 +129,21 @@ JS = """
   var rule = css.getPropertyValue('--rule').trim();
   var calm = css.getPropertyValue('--calm').trim();
   var watch = css.getPropertyValue('--watch').trim();
+
+  var updatedEl = document.getElementById('last-updated');
+  if (updatedEl) {
+    var updatedAt = new Date(updatedEl.getAttribute('data-updated'));
+    var renderUpdated = function(){
+      var mins = Math.round((Date.now() - updatedAt.getTime()) / 60000);
+      var label = mins <= 0 ? 'just now' : mins === 1 ? '1 minute ago' : mins + ' minutes ago';
+      updatedEl.textContent = 'Updated ' + label;
+      updatedEl.classList.remove('amber', 'red');
+      if (mins >= 60) { updatedEl.classList.add('red'); }
+      else if (mins >= 20) { updatedEl.classList.add('amber'); }
+    };
+    renderUpdated();
+    setInterval(renderUpdated, 30000);
+  }
 
   var table = document.getElementById('pace-table');
   if (table) {
@@ -234,7 +256,9 @@ def render(ops):
         age_txt = f"data {age}m old"
     meta_txt = f"built {gen} · {age_txt}"
 
-    h = [f'<div class="meta"><span>{day}</span><span>{meta_txt}</span></div>',
+    h = [f'<div class="updated" id="last-updated" data-updated="{escape(ops["updated"])}">'
+         f'Updated just now</div>',
+         f'<div class="meta"><span>{day}</span><span>{meta_txt}</span></div>',
          f'<h1 class="verdict{" clear" if clear else ""}">{escape(head)}</h1>',
          f'<p class="sub">{escape(sub)}</p>']
 
