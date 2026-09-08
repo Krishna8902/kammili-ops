@@ -21,7 +21,12 @@ jobs:
           GCAL_ICAL_URL: ${{ secrets.GCAL_ICAL_URL }}
         run: |
           python fetch/check_window.py || exit 0
-          for f in fetch/*.py; do [ "$(basename "$f")" = "check_window.py" ] && continue; python "$f"; done
+          for f in fetch/*.py; do
+            case "$(basename "$f")" in
+              check_window.py|turno.py) continue ;;
+            esac
+            python "$f"
+          done
           python build.py
           python render.py
           python brief.py
