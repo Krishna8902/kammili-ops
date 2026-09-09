@@ -55,7 +55,8 @@ def day_of(x):
 def main():
     RAW.mkdir(exist_ok=True)
     if not URL:
-        sys.exit("CALENDAR_ICS_URL not set. Calendar block stays empty.")
+        print("CALENDAR_ICS_URL not set. Calendar block stays empty.")
+        return
 
     try:
         req = urllib.request.Request(URL, headers={"User-Agent": "KammiliOps/1.0"})

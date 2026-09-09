@@ -18,7 +18,7 @@ jobs:
           OWNERREZ_TOKEN: ${{ secrets.OWNERREZ_TOKEN }}
           GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GCAL_ICAL_URL: ${{ secrets.GCAL_ICAL_URL }}
+          CALENDAR_ICS_URL: ${{ secrets.CALENDAR_ICS_URL }}
         run: |
           python fetch/check_window.py || exit 0
           for f in fetch/*.py; do
