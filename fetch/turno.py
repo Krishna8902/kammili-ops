@@ -63,7 +63,8 @@ def fetch_cleaning_jobs():
 def main():
     RAW.mkdir(exist_ok=True)
     if not API_KEY or not PARTNER_ID:
-        sys.exit("Set TURNO_API_KEY and TURNO_PARTNER_ID. Nothing fetched.")
+        print("Set TURNO_API_KEY and TURNO_PARTNER_ID. Nothing fetched.")
+        return
 
     data = fetch_cleaning_jobs()
     (RAW / "turno.json").write_text(json.dumps(data, indent=1))

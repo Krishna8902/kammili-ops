@@ -19,6 +19,7 @@ jobs:
           GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CALENDAR_ICS_URL: ${{ secrets.CALENDAR_ICS_URL }}
+          MAINTENANCE_SHEET_CSV: ${{ secrets.MAINTENANCE_SHEET_CSV }}
         run: |
           python fetch/check_window.py || exit 0
           for f in fetch/*.py; do

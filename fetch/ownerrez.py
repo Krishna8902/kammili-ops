@@ -60,7 +60,8 @@ def paged(path, params=None):
 
 def main():
     if not USER or not TOKEN:
-        sys.exit("Set OWNERREZ_USER and OWNERREZ_TOKEN. Nothing fetched.")
+        print("Set OWNERREZ_USER and OWNERREZ_TOKEN. Nothing fetched.")
+        return
 
     today = date.today()
     horizon = today + timedelta(days=60)

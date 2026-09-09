@@ -47,7 +47,8 @@ def parse_date(v):
 def main():
     RAW.mkdir(exist_ok=True)
     if not SHEET:
-        sys.exit("MAINTENANCE_SHEET_CSV not set. Maintenance block stays empty.")
+        print("MAINTENANCE_SHEET_CSV not set. Maintenance block stays empty.")
+        return
 
     try:
         with urllib.request.urlopen(SHEET, timeout=30) as r:
