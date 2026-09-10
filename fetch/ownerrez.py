@@ -10,6 +10,7 @@ This script does one job: fetch and dump. No logic. If it breaks, the
 dashboard still builds from the last good dump.
 """
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -62,6 +63,12 @@ def main():
     if not USER or not TOKEN:
         print("Set OWNERREZ_USER and OWNERREZ_TOKEN. Nothing fetched.")
         return
+
+    # One-way fingerprint of exactly what goes into the Basic-auth header,
+    # so a 401 here can be compared against a known-good local run without
+    # ever printing a reversible form of the credential to CI logs.
+    fingerprint = hashlib.sha256(f"{USER}:{TOKEN}".encode()).hexdigest()
+    print(f"auth fingerprint (sha256 of USER:TOKEN): {fingerprint}")
 
     today = date.today()
     horizon = today + timedelta(days=60)

@@ -354,6 +354,7 @@ def render(ops):
 
 
 if __name__ == "__main__":
+    OUT.mkdir(exist_ok=True)
     ops = json.loads((OUT / "ops.json").read_text())
     (OUT / "index.html").write_text(render(ops))
     print(f"rendered {OUT / 'index.html'}")
