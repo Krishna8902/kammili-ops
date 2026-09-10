@@ -38,7 +38,7 @@ def brief(ops):
         lines.append("")
         lines.append(f"In today: {len(arr)}")
         for a in arr:
-            cl = a["cleaner"] or "NO CLEANER"
+            cl = a.get("cleaner") or "NO CLEANER"
             sd = " same day" if a["same_day"] else ""
             lines.append(f"  {a['property']} {a['checkin']} {cl}{sd}")
 
@@ -55,7 +55,7 @@ def brief(ops):
         lines.append(f"  {p['property']} {int(p['occupancy']*100)}%")
 
     pipe = ops["pipeline"]
-    quiet = ", ".join(l["name"] for l in pipe["stale"][:3])
+    quiet = ", ".join(l.get("name", "Lead") for l in pipe["stale"][:3])
     lines.append("")
     lines.append(f"Pipeline: {pipe['new']} new. Quiet: {quiet or 'none'}")
 
