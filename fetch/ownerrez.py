@@ -174,20 +174,6 @@ def summarise(active, inactive, bookings):
         print(f"  {count:3d}  {names.get(pid, 'id ' + str(pid))}  {kind}/{status}")
 
 
-def confirmed_stay_lines(active, bookings):
-    """Property and dates only. Never guest names."""
-    names = {p.get("id"): label(p) for p in active}
-    lines = []
-    for booking in bookings:
-        status = str(booking.get("status") or "").lower()
-        kind = str(booking.get("type") or "booking").lower()
-        if kind not in ("booking", "owner") or status not in ("active", ""):
-            continue
-        name = names.get(booking.get("property_id"), f"id {booking.get('property_id')}")
-        lines.append(f"  stay {name} {str(booking.get('arrival') or '')[:10]} → {str(booking.get('departure') or '')[:10]}")
-    return lines
-
-
 def main():
     if not USER or not TOKEN:
         sys.exit(credentials_missing_message())
@@ -260,8 +246,6 @@ def main():
         )
 
     summarise(active, inactive, bookings)
-    for line in confirmed_stay_lines(active, bookings):
-        print(line)
 
     fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     meta = {

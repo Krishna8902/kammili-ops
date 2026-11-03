@@ -32,6 +32,13 @@ OCCUPANCY_TYPES = {"booking", "owner"}
 CANCELLED = {"cancelled", "canceled", "declined"}
 
 
+def percent(fraction):
+    """Nearest whole percent, half up (not bankers' rounding)."""
+    if not fraction or fraction <= 0:
+        return 0
+    return int(fraction * 100 + 0.5)
+
+
 def d(v):
     """Parse a date whether the API returns ISO or DD-MM-YYYY."""
     if not v:
@@ -206,7 +213,7 @@ def build(raw=None, out=None, today=None, now=None):
     for name in all_props:
         nights = len(booked.get(name, set()))
         occ = nights / 30 if all_props else 0
-        pacing.append({"property": name, "nights": nights, "occupancy": round(occ, 3)})
+        pacing.append({"property": name, "nights": nights, "occupancy": round(occ, 4)})
     pacing.sort(key=lambda p: p["occupancy"])
 
     # Only the two worst. If six listings are soft that is a pricing review,
@@ -215,7 +222,7 @@ def build(raw=None, out=None, today=None, now=None):
     for p in soft[:2]:
         exceptions.append({
             "severity": "watch",
-            "what": f"{p['property']} is {int(p['occupancy']*100)}% booked for the next 30 nights.",
+            "what": f"{p['property']} is {percent(p['occupancy'])}% booked for the next 30 nights.",
             "who": "Revenue",
         })
     if len(soft) > 2:
@@ -226,6 +233,7 @@ def build(raw=None, out=None, today=None, now=None):
         })
 
     portfolio_occ = (sum(p["nights"] for p in pacing) / (30 * len(pacing))) if pacing else 0
+    portfolio_occ = round(portfolio_occ, 4)
 
     # --- Block 4: pipeline ----------------------------------------------
     pipe = {
@@ -263,7 +271,7 @@ def build(raw=None, out=None, today=None, now=None):
         "departures": sorted(departures, key=lambda x: x["checkout"]),
         "exceptions": exceptions,
         "pacing": pacing,
-        "portfolio_occupancy": round(portfolio_occ, 3),
+        "portfolio_occupancy": portfolio_occ,
         "pipeline": pipe,
         "hidden": hidden,
         "counts": counts,
@@ -275,9 +283,9 @@ def build(raw=None, out=None, today=None, now=None):
           f"{ops['counts']['watch']} watch  "
           f"{len(arrivals)} arrivals  {len(departures)} departures  "
           f"data {book_minutes}m old")
-    print(f"portfolio {int(round(portfolio_occ * 100))}%")
+    print(f"portfolio {percent(portfolio_occ)}%")
     for row in pacing:
-        print(f"  {int(round(row['occupancy'] * 100)):3d}%  {row['nights']:2d}n  {row['property']}")
+        print(f"  {percent(row['occupancy']):3d}%  {row['nights']:2d}n  {row['property']}")
     skipped = ops["inactive_properties"]
     if skipped:
         print("excluded inactive: " + ", ".join(skipped))

@@ -7,6 +7,8 @@ from datetime import datetime
 from html import escape
 from pathlib import Path
 
+from build import percent
+
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "out"
 
@@ -342,7 +344,7 @@ def render(ops):
               '<th data-key="occupancy" data-type="number" data-dir="asc">Occupancy</th>'
               '</tr></thead><tbody>')
     for p in ops["pacing"]:
-        pct = int(p["occupancy"] * 100)
+        pct = percent(p["occupancy"])
         low = " low" if p["occupancy"] < 0.55 else ""
         name = escape(p["property"])
         h.append(f'<tr data-property="{name}" data-nights="{p["nights"]}" '
@@ -353,7 +355,7 @@ def render(ops):
                  f'<span class="pct">{pct}%</span></td></tr>')
     h.append("</tbody></table></div>")
     h.append(f'<div class="total"><span>Portfolio</span>'
-             f'<b>{int(ops["portfolio_occupancy"] * 100)}% booked</b></div>')
+             f'<b>{percent(ops["portfolio_occupancy"])}% booked</b></div>')
 
     pipe = ops["pipeline"]
     h.append("<h2>Pipeline</h2>")

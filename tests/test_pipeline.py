@@ -33,6 +33,14 @@ def stay(pid, arrival, departure, status="active", kind="booking", bid=1):
     }
 
 
+class PercentTests(unittest.TestCase):
+    def test_half_up(self):
+        self.assertEqual(build.percent(0), 0)
+        self.assertEqual(build.percent(0.205), 21)
+        self.assertEqual(build.percent(0.2667), 27)
+        self.assertEqual(build.percent(7 / 30), 23)
+
+
 class QueryTests(unittest.TestCase):
     def test_booking_query_is_a_calendar_pull(self):
         params = ownerrez.booking_params([8, 6], date(2026, 11, 2), date(2027, 1, 2))

@@ -12,6 +12,8 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from build import percent
+
 OUT = Path(__file__).resolve().parent / "out"
 BOT = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -50,9 +52,9 @@ def brief(ops):
             lines.append(f"  {x['property']} {x['checkout']}")
 
     lines.append("")
-    lines.append(f"30 nights: {int(ops['portfolio_occupancy']*100)}% booked")
+    lines.append(f"30 nights: {percent(ops['portfolio_occupancy'])}% booked")
     for p in [p for p in ops["pacing"] if p["occupancy"] < 0.55][:2]:
-        lines.append(f"  {p['property']} {int(p['occupancy']*100)}%")
+        lines.append(f"  {p['property']} {percent(p['occupancy'])}%")
 
     pipe = ops["pipeline"]
     quiet = ", ".join(l.get("name", "Lead") for l in pipe["stale"][:3])
