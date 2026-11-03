@@ -10,6 +10,7 @@ not to list what is fine.
 """
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -88,6 +89,149 @@ def counts_as_booked(booking):
     if status and status != "active":
         return False
     return True
+
+
+TURNOVER_DAYS = 14
+
+
+def _clock(value):
+    """Property-local HH:mm as OwnerRez sends it. Do not invent a default."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    match = re.search(r"(\d{1,2}):(\d{2})", text)
+    if not match:
+        return None
+    return f"{int(match.group(1)):02d}:{match.group(2)}"
+
+
+def _cleaning(value):
+    """cleaning_date is already in the property timezone. Keep date and time."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    cleaned = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        day = f"{parsed.day} {parsed.strftime('%b')}"
+        if len(text) <= 10:
+            return day
+        return f"{day} {parsed.strftime('%H:%M')}"
+    return _clock(text) or text[:32]
+
+
+def turnovers(props, bookings, today):
+    """Arrivals and departures on active properties for the next 14 days.
+
+    check_in, check_out and cleaning_date are OwnerRez's property-timezone
+    values. A same-day row is a departure and an arrival on one property
+    on the same London date (check-out followed by check-in).
+    """
+    active_ids = {str(p.get("id")) for p in props if property_is_active(p)}
+    names = {str(p.get("id")): prop_name(props, p.get("id")) for p in props if property_is_active(p)}
+    stays = []
+    for booking in bookings:
+        if not counts_as_booked(booking):
+            continue
+        pid = str(booking.get("property_id"))
+        if pid not in active_ids:
+            continue
+        arrival = d(booking.get("arrival"))
+        departure = d(booking.get("departure"))
+        stays.append({
+            "property": names.get(pid, prop_name(props, booking.get("property_id"))),
+            "arrival": arrival,
+            "departure": departure,
+            "check_in": _clock(booking.get("check_in")),
+            "check_out": _clock(booking.get("check_out")),
+            "cleaning": _cleaning(booking.get("cleaning_date")),
+        })
+
+    days = []
+    arrivals = departures = same_day = 0
+    for offset in range(TURNOVER_DAYS):
+        day = today + timedelta(days=offset)
+        by_property = {}
+        for stay in stays:
+            slot = by_property.setdefault(stay["property"], {"out": [], "in": []})
+            if stay["departure"] == day:
+                slot["out"].append(stay)
+            if stay["arrival"] == day:
+                slot["in"].append(stay)
+        rows = []
+        for property_name in sorted(by_property):
+            slot = by_property[property_name]
+            outs = sorted(slot["out"], key=lambda item: item["check_out"] or "")
+            ins = sorted(slot["in"], key=lambda item: item["check_in"] or "")
+            paired = min(len(outs), len(ins))
+            for index in range(paired):
+                rows.append({
+                    "property": property_name,
+                    "same_day": True,
+                    "check_out": outs[index]["check_out"],
+                    "check_in": ins[index]["check_in"],
+                    "cleaning": outs[index]["cleaning"] or ins[index]["cleaning"],
+                })
+                arrivals += 1
+                departures += 1
+                same_day += 1
+            for stay in outs[paired:]:
+                rows.append({
+                    "property": property_name,
+                    "same_day": False,
+                    "check_out": stay["check_out"],
+                    "check_in": None,
+                    "cleaning": stay["cleaning"],
+                })
+                departures += 1
+            for stay in ins[paired:]:
+                rows.append({
+                    "property": property_name,
+                    "same_day": False,
+                    "check_out": None,
+                    "check_in": stay["check_in"],
+                    "cleaning": stay["cleaning"],
+                })
+                arrivals += 1
+        when = "today" if offset == 0 else "tomorrow" if offset == 1 else ""
+        if when or rows:
+            days.append({
+                "date": day.isoformat(),
+                "when": when,
+                "heading": "Today" if when == "today" else "Tomorrow" if when == "tomorrow" else _day_heading(day),
+                "label": _day_heading(day),
+                "rows": rows,
+            })
+    return {
+        "days": days,
+        "arrivals": arrivals,
+        "departures": departures,
+        "same_day": same_day,
+    }
+
+
+def _day_heading(day):
+    return f"{day.strftime('%a')} {day.day} {day.strftime('%b')}"
+
+
+def read_source(raw, name):
+    path = raw / f"{name}.json"
+    if not path.exists():
+        return {"status": "not_connected", "detail": "Not connected yet"}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {"status": "error", "detail": "not connected / error"}
+    if not isinstance(data, dict) or "status" not in data:
+        return {"status": "error", "detail": "not connected / error"}
+    return data
 
 
 def read_ownerrez_meta(raw, now):
@@ -259,6 +403,11 @@ def build(raw=None, out=None, today=None, now=None):
     }
     exceptions = exceptions[:8]
 
+    schedule = turnovers(props, active, today)
+    tasks = read_source(raw, "tasks")
+    turno = read_source(raw, "turno")
+    enso = read_source(raw, "enso")
+
     ops = {
         "generated": now.isoformat(timespec="seconds"),
         "updated": fetched.astimezone(ZoneInfo("Europe/London")).isoformat(timespec="seconds"),
@@ -275,6 +424,10 @@ def build(raw=None, out=None, today=None, now=None):
         "pipeline": pipe,
         "hidden": hidden,
         "counts": counts,
+        "turnovers": schedule,
+        "tasks": tasks,
+        "turno": turno,
+        "enso": enso,
     }
 
     out.mkdir(exist_ok=True)
@@ -284,6 +437,9 @@ def build(raw=None, out=None, today=None, now=None):
           f"{len(arrivals)} arrivals  {len(departures)} departures  "
           f"data {book_minutes}m old")
     print(f"portfolio {percent(portfolio_occ)}%")
+    print(f"14 days  {schedule['arrivals']} in  {schedule['departures']} out  "
+          f"{schedule['same_day']} same-day")
+    print(f"tasks  {tasks.get('status')}  turno  {turno.get('status')}  enso  {enso.get('status')}")
     for row in pacing:
         print(f"  {percent(row['occupancy']):3d}%  {row['nights']:2d}n  {row['property']}")
     skipped = ops["inactive_properties"]

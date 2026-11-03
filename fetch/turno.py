@@ -1,78 +1,92 @@
-"""
-Pull raw Turno cleaning-job data to raw/turno.json.
+"""Pull Turno cleaning projects when credentials exist.
 
-PARKED: not wired into run.sh or the GitHub Actions workflow, and build.py
-does not read raw/turno.json yet. This sits here unused until real Turno
-partner API credentials are in hand. Do not add it to any pipeline step
-without confirming the details below against the current docs.
+Turno External API v2 (https://apidocs.turnoverbnb.com/):
+  Authorization: Bearer token
+  TBNB-Partner-ID: the partner id from Turno's API token page
+  GET https://api.turnoverbnb.com/v2/projects
 
-Auth: Turno's External API v2 (apidocs.turnoverbnb.com) is OAuth 2.0 bearer
-tokens plus a partner ID header, granted on request to partners -- not a
-simple static API key. Access and refresh tokens last about a year.
-  TURNO_API_KEY     the OAuth access token
-  TURNO_PARTNER_ID  the partner ID Turno issued you, sent as TBNB-Partner-ID
+Secrets: TURNO_TOKEN and TURNO_PARTNER_ID. When either is missing the panel
+stays "Not connected yet" and this script exits 0. Response fields are not
+invented: a successful call records only that it connected and, when the
+body is a list (or an object whose "data" member is a list), how many
+projects came back.
 
-Endpoint: the resource is called "projects" in Turno's API (a project is a
-cleaning). Base URL, exact path, query params (date filtering, pagination)
-and response shape below are UNCONFIRMED -- the public docs site is a JS
-app that would not yield endpoint details to automated fetching. Verify
-everything against https://apidocs.turnoverbnb.com/ (or your partner
-onboarding docs) before this is ever added to run.sh or the workflow.
-
-This script does one job: fetch and dump. No logic. If it breaks, nothing
-downstream notices, because nothing downstream reads its output yet.
+The token is sent as a header and is never printed. HTTP error bodies are
+discarded for the same reason.
 """
 import json
 import os
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
-from datetime import date, timedelta
 from pathlib import Path
 
-BASE = "https://api.turnoverbnb.com/v2"  # TODO: confirm against current docs
+BASE = "https://api.turnoverbnb.com/v2"
 RAW = Path(__file__).resolve().parent.parent / "raw"
-API_KEY = os.environ.get("TURNO_API_KEY", "")
-PARTNER_ID = os.environ.get("TURNO_PARTNER_ID", "")
+TOKEN = os.environ.get("TURNO_TOKEN", "").strip()
+PARTNER_ID = os.environ.get("TURNO_PARTNER_ID", "").strip()
 
 
-def get(path, params=None):
-    url = BASE + path
-    if params:
-        url += "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {API_KEY}",
-        "TBNB-Partner-ID": PARTNER_ID,
-        "Accept": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())
+def project_count(body):
+    """Count projects only when the JSON shape is an actual list."""
+    if isinstance(body, list):
+        return len(body)
+    if isinstance(body, dict) and isinstance(body.get("data"), list):
+        return len(body["data"])
+    return None
 
 
-def fetch_cleaning_jobs():
-    today = date.today()
-    horizon = today + timedelta(days=60)
-    # TODO: confirm path and param names ("projects" and from/to are a guess).
-    return get("/projects", {
-        "from": today.isoformat(),
-        "to": horizon.isoformat(),
-    })
+def write(payload):
+    RAW.mkdir(parents=True, exist_ok=True)
+    (RAW / "turno.json").write_text(json.dumps(payload, indent=1))
 
 
 def main():
-    RAW.mkdir(exist_ok=True)
-    if not API_KEY or not PARTNER_ID:
-        print("Set TURNO_API_KEY and TURNO_PARTNER_ID. Nothing fetched.")
+    if not TOKEN or not PARTNER_ID:
+        missing = []
+        if not TOKEN:
+            missing.append("TURNO_TOKEN")
+        if not PARTNER_ID:
+            missing.append("TURNO_PARTNER_ID")
+        write({"status": "not_connected", "detail": "Not connected yet"})
+        print("turno  not connected (missing " + ", ".join(missing) + ")")
         return
 
-    data = fetch_cleaning_jobs()
-    (RAW / "turno.json").write_text(json.dumps(data, indent=1))
-    print(f"ok   turno  {len(data)} records")
+    req = urllib.request.Request(
+        BASE + "/projects",
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "TBNB-Partner-ID": PARTNER_ID,
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as response:
+            body = json.loads(response.read().decode())
+    except urllib.error.HTTPError as exc:
+        write({
+            "status": "error",
+            "detail": f"not connected / error (HTTP {exc.code})",
+        })
+        print(f"turno  not connected / error (HTTP {exc.code})")
+        return
+    except Exception:
+        write({"status": "error", "detail": "not connected / error"})
+        print("turno  not connected / error")
+        return
+
+    payload = {"status": "ok", "detail": "Connected"}
+    count = project_count(body)
+    if count is not None:
+        payload["count"] = count
+    write(payload)
+    print(f"turno  connected  {count if count is not None else 'response received'}")
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        print(f"FAIL turno: {e}", file=sys.stderr)
+    except Exception:
+        write({"status": "error", "detail": "not connected / error"})
+        print("turno  not connected / error")
+        sys.exit(0)

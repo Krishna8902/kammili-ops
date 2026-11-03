@@ -51,6 +51,35 @@ def brief(ops):
         for x in dep:
             lines.append(f"  {x['property']} {x['checkout']}")
 
+    turns = ops.get("turnovers") or {}
+    lines.append("")
+    lines.append(
+        f"14 days: {turns.get('arrivals', 0)} in, {turns.get('departures', 0)} out."
+    )
+    for day in turns.get("days") or []:
+        if day.get("when") not in ("today", "tomorrow"):
+            continue
+        rows = day.get("rows") or []
+        inn = sum(1 for row in rows if row.get("check_in"))
+        out = sum(1 for row in rows if row.get("check_out"))
+        same = [row["property"] for row in rows if row.get("same_day")]
+        line = f"{day.get('heading')}: {inn} in, {out} out."
+        if same:
+            line += " Same-day: " + ", ".join(same) + "."
+        lines.append(line)
+
+    tasks = ops.get("tasks") or {}
+    if tasks.get("status") == "ok":
+        overdue = tasks.get("overdue") or []
+        team = sum(1 for item in overdue if item.get("owner") == "Team")
+        krishna = sum(1 for item in overdue if item.get("owner") == "Krishna")
+        missed = sum(len(item.get("days") or []) for item in tasks.get("missed_daily") or [])
+        lines.append(f"Tasks overdue: {len(overdue)} (Team {team}, Krishna {krishna}).")
+        if missed:
+            lines.append(f"Missed daily checks: {missed}.")
+    else:
+        lines.append("Tasks: not connected.")
+
     lines.append("")
     lines.append(f"30 nights: {percent(ops['portfolio_occupancy'])}% booked")
     for p in [p for p in ops["pacing"] if p["occupancy"] < 0.55][:2]:

@@ -44,11 +44,15 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CALENDAR_ICS_URL: ${{ secrets.CALENDAR_ICS_URL }}
           MAINTENANCE_SHEET_CSV: ${{ secrets.MAINTENANCE_SHEET_CSV }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          TURNO_TOKEN: ${{ secrets.TURNO_TOKEN }}
+          TURNO_PARTNER_ID: ${{ secrets.TURNO_PARTNER_ID }}
         run: |
           set -euo pipefail
+          python -m pip install --quiet -r requirements.txt
           for f in fetch/*.py; do
             case "$(basename "$f")" in
-              check_window.py|turno.py) continue ;;
+              check_window.py) continue ;;
             esac
             python "$f"
           done

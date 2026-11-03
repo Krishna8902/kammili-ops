@@ -112,6 +112,18 @@ h2{font-size:15px; font-weight:640; letter-spacing:-.006em;
   margin-top:8px; border-top:1px solid var(--rule); font-size:14px;
   color:var(--soft)}
 .total b{color:var(--ink); font-weight:640}
+.dayhead{display:flex; justify-content:space-between; gap:12px;
+  font-size:13px; font-weight:640; margin:18px 0 0; padding-top:8px}
+.dayhead.today{color:var(--critical)}
+.dayhead.tomorrow{color:var(--watch)}
+.move{display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+  padding:9px 0; border-bottom:1px solid var(--rule); font-size:15px}
+.move .detail{color:var(--soft); font-size:13px; text-align:right}
+.group{margin:18px 0 0; font-size:13px; font-weight:640}
+.task{display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+  padding:9px 0; border-bottom:1px solid var(--rule); font-size:15px}
+.task .name{min-width:0}
+.task .meta{color:var(--soft); font-size:13px; white-space:nowrap}
 .foot{margin-top:46px; font-size:12.5px; color:var(--soft)}
 @media (max-width:560px){
   .turn-row{grid-template-columns:1fr; padding:4px 0}
@@ -268,6 +280,138 @@ def freshness(age):
     return f"Data {age // 1440} days ago", "red"
 
 
+def source_line(block, empty_ok):
+    status = (block or {}).get("status")
+    if status == "ok":
+        return None
+    if status == "error":
+        detail = (block or {}).get("detail") or "not connected / error"
+        if not str(detail).startswith("not connected"):
+            detail = "not connected / error. " + str(detail)
+        return f'<p class="none">{escape(detail)}</p>'
+    return '<p class="none">Not connected yet.</p>'
+
+
+def movement_detail(row):
+    parts = []
+    if row.get("check_out"):
+        parts.append("Out " + row["check_out"])
+    if row.get("check_in"):
+        parts.append("In " + row["check_in"])
+    if row.get("cleaning"):
+        parts.append("Clean " + row["cleaning"])
+    return " · ".join(parts) or "Time not on the booking"
+
+
+def turnovers_html(ops):
+    turns = ops.get("turnovers") or {}
+    days = turns.get("days") or []
+    if not days:
+        return "<h2>Next 14 days</h2>" + '<p class="none">No arrivals or departures in the next 14 days.</p>'
+    html = ["<h2>Next 14 days</h2>"]
+    html.append(
+        f'<p class="sub" style="margin:8px 0 0">{turns.get("arrivals", 0)} check-ins, '
+        f'{turns.get("departures", 0)} check-outs'
+        + (f', {turns.get("same_day", 0)} same-day.' if turns.get("same_day") else ".")
+        + " Times are the property timezone.</p>"
+    )
+    for day in days:
+        klass = "dayhead"
+        if day.get("when"):
+            klass += " " + day["when"]
+        title = escape(day.get("heading") or "")
+        if day.get("when") and day.get("label"):
+            title += " · " + escape(day["label"])
+        html.append(f'<div class="{klass}">{title}</div>')
+        rows = day.get("rows") or []
+        if not rows:
+            html.append('<p class="none">Nothing moving.</p>')
+            continue
+        for row in rows:
+            flag = '<span class="flag">same day</span>' if row.get("same_day") else ""
+            html.append(
+                '<div class="move">'
+                f'<span><span class="prop">{escape(row.get("property") or "")}</span>{flag}</span>'
+                f'<span class="detail">{escape(movement_detail(row))}</span>'
+                "</div>"
+            )
+    return "".join(html)
+
+
+def tasks_html(ops):
+    tasks = ops.get("tasks") or {}
+    html = ["<h2>Overdue tasks</h2>"]
+    blocked = source_line(tasks, True)
+    if blocked and tasks.get("status") != "ok":
+        html.append(blocked)
+        return "".join(html)
+    overdue = tasks.get("overdue") or []
+    missed = tasks.get("missed_daily") or []
+    sheet = escape(str(tasks.get("sheet") or ""))
+    if sheet:
+        html.append(f'<p class="sub" style="margin:8px 0 0">Week {sheet}.</p>')
+    if not overdue and not missed:
+        html.append('<p class="none">Nothing overdue.</p>')
+        return "".join(html)
+    for owner in ("Team", "Krishna"):
+        rows = [item for item in overdue if item.get("owner") == owner]
+        if not rows:
+            continue
+        html.append(f'<div class="group">{owner} · {len(rows)} overdue</div>')
+        for item in rows:
+            days = int(item.get("days_overdue") or 0)
+            note = item.get("note") or "No progress note"
+            priority = item.get("priority") or ""
+            extra = f"{days}d overdue · {note}"
+            if priority:
+                extra = f"{priority} · {extra}"
+            html.append(
+                '<div class="task">'
+                f'<span class="name">{escape(str(item.get("task") or ""))}</span>'
+                f'<span class="meta">{escape(extra)}</span>'
+                "</div>"
+            )
+    if missed:
+        html.append('<div class="group">Missed daily checks</div>')
+        for item in missed:
+            days = ", ".join(item.get("days") or [])
+            html.append(
+                '<div class="task">'
+                f'<span class="name">{escape(str(item.get("owner") or ""))}: {escape(str(item.get("task") or ""))}</span>'
+                f'<span class="meta">{escape(days)}</span>'
+                "</div>"
+            )
+    return "".join(html)
+
+
+def placeholder_html(title, block, connected):
+    html = [f"<h2>{escape(title)}</h2>"]
+    status = (block or {}).get("status")
+    if status == "ok":
+        html.append(f'<p class="none">{escape(connected(block))}</p>')
+    else:
+        html.append(source_line(block, False))
+    return "".join(html)
+
+
+def turno_connected(block):
+    count = block.get("count")
+    if isinstance(count, int):
+        noun = "project" if count == 1 else "projects"
+        return f"Connected. {count} cleaning {noun}."
+    return "Connected."
+
+
+def enso_connected(block):
+    count = block.get("count") or 0
+    if not count:
+        return "No threads in the last 30 days."
+    average = block.get("average_minutes")
+    median = block.get("median_minutes")
+    return (f"Average first reply {average} min. Median {median} min. "
+            f"{count} threads in the last 30 days.")
+
+
 def render(ops):
     head, sub, clear = verdict(ops)
     day = datetime.fromisoformat(ops["date"]).strftime("%d %B %Y")
@@ -334,6 +478,12 @@ def render(ops):
         h.append("</div>")
     else:
         h.append('<p class="none">No arrivals or departures today.</p>')
+
+    h.append(turnovers_html(ops))
+    h.append(tasks_html(ops))
+    h.append(placeholder_html("Turno cleaning jobs", ops.get("turno"), turno_connected))
+    h.append(placeholder_html(
+        "Enso Connect response times (last 30 days)", ops.get("enso"), enso_connected))
 
     h.append("<h2>Next 30 nights</h2>")
     h.append('<div class="chart-wrap"><canvas id="pacingChart"></canvas></div>')
