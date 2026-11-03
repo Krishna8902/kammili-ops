@@ -144,6 +144,7 @@ class WindowTests(unittest.TestCase):
         night = datetime(2026, 11, 2, 22, 59, tzinfo=timezone.utc)
         self.assertEqual(window_main(now=night, event_name="schedule"), 2)
         self.assertEqual(window_main(now=night, event_name="workflow_dispatch"), 0)
+        self.assertEqual(window_main(now=night, event_name="pull_request"), 0)
         afternoon = datetime(2026, 11, 3, 13, 40, tzinfo=timezone.utc)
         self.assertEqual(window_main(now=afternoon, event_name="schedule"), 0)
 
