@@ -1,8 +1,13 @@
 name: kammili-ops
 on:
   schedule:
-    - cron: '*/30 6-22 * * *'   # every 30 min, 06:00-22:00 UTC
+    # Every 30 minutes from 06:00 through 21:30 UTC. The London window is
+    # 06:00–22:00. Hour 22 UTC is always outside that window (22:00 GMT, or
+    # 23:00 during British Summer Time). Those runs used to skip the build
+    # with exit 0, then fail the Pages deploy because out/ did not exist.
+    - cron: '*/30 6-21 * * *'
   workflow_dispatch: {}
+  pull_request:
 
 jobs:
   run:
@@ -12,7 +17,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Operating window
+        id: window
+        run: |
+          set +e
+          python fetch/check_window.py
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$code" -eq 2 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Outside operating window. Pipeline skipped."
+          else
+            exit "$code"
+          fi
+
       - name: Run pipeline
+        if: steps.window.outputs.run == 'true'
         env:
           OWNERREZ_USER: ${{ secrets.OWNERREZ_USER }}
           OWNERREZ_TOKEN: ${{ secrets.OWNERREZ_TOKEN }}
@@ -21,20 +44,32 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CALENDAR_ICS_URL: ${{ secrets.CALENDAR_ICS_URL }}
           MAINTENANCE_SHEET_CSV: ${{ secrets.MAINTENANCE_SHEET_CSV }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          TURNO_TOKEN: ${{ secrets.TURNO_TOKEN }}
+          TURNO_PARTNER_ID: ${{ secrets.TURNO_PARTNER_ID }}
         run: |
-          python fetch/check_window.py || exit 0
+          set -euo pipefail
+          python -m pip install --quiet -r requirements.txt
           for f in fetch/*.py; do
             case "$(basename "$f")" in
-              check_window.py|turno.py) continue ;;
+              check_window.py) continue ;;
             esac
             python "$f"
           done
           python build.py
           python render.py
           python brief.py
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+
+      - name: Upload dashboard
+        if: steps.window.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy out --project-name=kammili-ops
+          name: ops-dashboard
+          path: out/index.html
+          retention-days: 5
+          if-no-files-found: error
+
+      # Cloudflare Pages deploy is intentionally off. The previous step
+      # published this dashboard to a public *.pages.dev URL. Turn it back
+      # on only after access is limited to the team (see the pull request).
+      # Secrets that step used: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.

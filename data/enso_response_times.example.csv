@@ -1,0 +1,4 @@
+received_at,first_reply_at,property,conversation_id
+2026-10-20T09:00:00+00:00,2026-10-20T09:25:00+00:00,Example Studio,sample-1
+2026-10-21T18:10:00+00:00,2026-10-21T19:40:00+00:00,Example Studio,sample-2
+2026-10-22T11:00:00+01:00,2026-10-22T11:12:00+01:00,Example House,sample-3

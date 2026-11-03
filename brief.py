@@ -12,6 +12,8 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from build import percent
+
 OUT = Path(__file__).resolve().parent / "out"
 BOT = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -49,10 +51,39 @@ def brief(ops):
         for x in dep:
             lines.append(f"  {x['property']} {x['checkout']}")
 
+    turns = ops.get("turnovers") or {}
     lines.append("")
-    lines.append(f"30 nights: {int(ops['portfolio_occupancy']*100)}% booked")
+    lines.append(
+        f"14 days: {turns.get('arrivals', 0)} in, {turns.get('departures', 0)} out."
+    )
+    for day in turns.get("days") or []:
+        if day.get("when") not in ("today", "tomorrow"):
+            continue
+        rows = day.get("rows") or []
+        inn = sum(1 for row in rows if row.get("check_in"))
+        out = sum(1 for row in rows if row.get("check_out"))
+        same = [row["property"] for row in rows if row.get("same_day")]
+        line = f"{day.get('heading')}: {inn} in, {out} out."
+        if same:
+            line += " Same-day: " + ", ".join(same) + "."
+        lines.append(line)
+
+    tasks = ops.get("tasks") or {}
+    if tasks.get("status") == "ok":
+        overdue = tasks.get("overdue") or []
+        team = sum(1 for item in overdue if item.get("owner") == "Team")
+        krishna = sum(1 for item in overdue if item.get("owner") == "Krishna")
+        missed = sum(len(item.get("days") or []) for item in tasks.get("missed_daily") or [])
+        lines.append(f"Tasks overdue: {len(overdue)} (Team {team}, Krishna {krishna}).")
+        if missed:
+            lines.append(f"Missed daily checks: {missed}.")
+    else:
+        lines.append("Tasks: not connected.")
+
+    lines.append("")
+    lines.append(f"30 nights: {percent(ops['portfolio_occupancy'])}% booked")
     for p in [p for p in ops["pacing"] if p["occupancy"] < 0.55][:2]:
-        lines.append(f"  {p['property']} {int(p['occupancy']*100)}%")
+        lines.append(f"  {p['property']} {percent(p['occupancy'])}%")
 
     pipe = ops["pipeline"]
     quiet = ", ".join(l.get("name", "Lead") for l in pipe["stale"][:3])
@@ -67,19 +98,39 @@ def brief(ops):
 
 
 def send(text):
-    if not BOT or not CHAT:
-        print(text)
-        return
+    missing = []
+    if not BOT:
+        missing.append("TELEGRAM_BOT_TOKEN")
+    if not CHAT:
+        missing.append("TELEGRAM_CHAT_ID")
+    if missing:
+        # Do not print the brief. The repository is public and Actions logs
+        # are world-readable; the text names who arrives today.
+        print(
+            "brief not sent; missing " + ", ".join(missing) + ". "
+            "Add the repository secret at GitHub → Settings → Secrets and variables → Actions. "
+            "The text is in out/brief.txt on the runner only."
+        )
+        return False
     body = urllib.parse.urlencode({"chat_id": CHAT, "text": text}).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT}/sendMessage", data=body)
-    with urllib.request.urlopen(req, timeout=15) as r:
-        r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            r.read()
+    except Exception:
+        # The request URL contains the bot token. Do not print the exception.
+        print(
+            "brief not sent; Telegram rejected the request. "
+            "Check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID at "
+            "GitHub → Settings → Secrets and variables → Actions."
+        )
+        return False
+    return True
 
 
 if __name__ == "__main__":
     ops = json.loads((OUT / "ops.json").read_text())
     text = brief(ops)
     (OUT / "brief.txt").write_text(text)
-    send(text)
-    print("brief sent" if BOT else "brief printed (no TELEGRAM_BOT_TOKEN)")
+    print("brief sent" if send(text) else "brief written, not sent")
