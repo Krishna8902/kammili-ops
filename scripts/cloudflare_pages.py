@@ -85,6 +85,23 @@ def main():
     result = _request(url, token, "GET")
     summary = safe_summary(result)
     print("Pages project", PROJECT)
+    print("  project_keys:", ", ".join(sorted(result.keys())))
+    source = result.get("source")
+    print("  source_is_null:", source is None)
+    if isinstance(source, dict):
+        print("  source_keys:", ", ".join(sorted(source.keys())) or "(empty object)")
+    latest = result.get("canonical_deployment") or result.get("latest_deployment") or {}
+    if isinstance(latest, dict) and latest:
+        trigger = latest.get("deployment_trigger") or {}
+        meta = trigger.get("metadata") if isinstance(trigger, dict) else None
+        build = latest.get("build_config") or {}
+        print("  canonical_created_on:", latest.get("created_on"))
+        print("  canonical_environment:", latest.get("environment"))
+        print("  canonical_trigger_type:", trigger.get("type") if isinstance(trigger, dict) else None)
+        print("  canonical_trigger_meta_keys:",
+              ", ".join(sorted(meta)) if isinstance(meta, dict) else "(none)")
+        print("  canonical_build_command:", json.dumps(build.get("build_command") or ""))
+        print("  canonical_destination_dir:", json.dumps(build.get("destination_dir") or ""))
     for key in (
         "source_type", "production_branch", "build_command", "destination_dir",
         "root_dir", "production_deployments_enabled", "preview_deployment_setting",
