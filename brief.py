@@ -67,19 +67,39 @@ def brief(ops):
 
 
 def send(text):
-    if not BOT or not CHAT:
-        print(text)
-        return
+    missing = []
+    if not BOT:
+        missing.append("TELEGRAM_BOT_TOKEN")
+    if not CHAT:
+        missing.append("TELEGRAM_CHAT_ID")
+    if missing:
+        # Do not print the brief. The repository is public and Actions logs
+        # are world-readable; the text names who arrives today.
+        print(
+            "brief not sent; missing " + ", ".join(missing) + ". "
+            "Add the repository secret at GitHub → Settings → Secrets and variables → Actions. "
+            "The text is in out/brief.txt on the runner only."
+        )
+        return False
     body = urllib.parse.urlencode({"chat_id": CHAT, "text": text}).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{BOT}/sendMessage", data=body)
-    with urllib.request.urlopen(req, timeout=15) as r:
-        r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            r.read()
+    except Exception:
+        # The request URL contains the bot token. Do not print the exception.
+        print(
+            "brief not sent; Telegram rejected the request. "
+            "Check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID at "
+            "GitHub → Settings → Secrets and variables → Actions."
+        )
+        return False
+    return True
 
 
 if __name__ == "__main__":
     ops = json.loads((OUT / "ops.json").read_text())
     text = brief(ops)
     (OUT / "brief.txt").write_text(text)
-    send(text)
-    print("brief sent" if BOT else "brief printed (no TELEGRAM_BOT_TOKEN)")
+    print("brief sent" if send(text) else "brief written, not sent")

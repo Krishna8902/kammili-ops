@@ -2,12 +2,14 @@
 Read raw/*.json, write out/ops.json.
 
 This is the only file that contains business logic. Fetching is separate on
-purpose: a dead API gives you a stale dashboard, not no dashboard.
+purpose. A dead OwnerRez call must fail here, not render the last dump as
+if it were today's occupancy.
 
 Every block is exception-first. The page exists to show you what is wrong,
 not to list what is fine.
 """
 import json
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -21,18 +23,13 @@ OUT = ROOT / "out"
 REPLY_SLA_HOURS = 4
 # Occupancy for the next 30 nights below this on any listing is an exception.
 PACING_FLOOR = 0.55
-
-
-def load(name, default):
-    p = RAW / f"{name}.json"
-    if not p.exists():
-        return default, None
-    age = datetime.now(timezone.utc) - datetime.fromtimestamp(
-        p.stat().st_mtime, tz=timezone.utc)
-    try:
-        return json.loads(p.read_text()), age
-    except json.JSONDecodeError:
-        return default, age
+# Older than this, the file is a cache, not a picture of the business.
+MAX_DATA_AGE_MINUTES = 90
+# Confirmed guest stays and owner stays occupy a night. Blocks, quote holds
+# and linked availability close the calendar for other reasons; they are not
+# "booked" on this board. OwnerRez status "canceled" is the API spelling.
+OCCUPANCY_TYPES = {"booking", "owner"}
+CANCELLED = {"cancelled", "canceled", "declined"}
 
 
 def d(v):
@@ -56,20 +53,99 @@ def d(v):
 
 def prop_name(props, pid):
     for p in props:
-        if p.get("id") == pid:
-            return p.get("name") or p.get("nickname") or f"Property {pid}"
+        if str(p.get("id")) == str(pid):
+            return p.get("name") or p.get("external_name") or p.get("nickname") or f"Property {pid}"
     return f"Property {pid}"
 
 
-def build():
-    today = date.today()
-    props, _ = load("ownerrez_properties", [])
-    bookings, book_age = load("ownerrez_bookings", [])
-    pipeline, _ = load("ghl_pipeline", {})
-    issues, _ = load("maintenance", [])
+def property_is_active(prop):
+    """OwnerRez omits empty fields, but `active: false` is present when off."""
+    return prop.get("active") is not False
 
-    active = [b for b in bookings
-              if str(b.get("status", "")).lower() not in ("cancelled", "canceled", "declined")]
+
+def guest_name(booking):
+    if booking.get("guest_name"):
+        return booking["guest_name"]
+    guest = booking.get("guest") or {}
+    name = " ".join(part for part in (guest.get("first_name"), guest.get("last_name")) if part)
+    return name or "Guest"
+
+
+def counts_as_booked(booking):
+    status = str(booking.get("status", "")).lower()
+    if status in CANCELLED:
+        return False
+    kind = str(booking.get("type") or "booking").lower()
+    if kind not in OCCUPANCY_TYPES:
+        return False
+    if status and status != "active":
+        return False
+    return True
+
+
+def read_ownerrez_meta(raw, now):
+    path = raw / "ownerrez_meta.json"
+    if not path.exists():
+        sys.exit(
+            "OwnerRez fetch metadata is missing (raw/ownerrez_meta.json). "
+            "Refusing to build from cached raw/. Run fetch/ownerrez.py. "
+            "If that reports HTTP 401, update the OWNERREZ_USER and OWNERREZ_TOKEN "
+            "secrets at GitHub → Settings → Secrets and variables → Actions "
+            "(or in .env locally). Do not commit them."
+        )
+    try:
+        meta = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        sys.exit("raw/ownerrez_meta.json is not valid JSON. Refusing to build.")
+    if not meta.get("ok"):
+        sys.exit("OwnerRez fetch did not succeed. Refusing to build from cached raw/.")
+    try:
+        fetched = datetime.fromisoformat(meta["fetched_at"])
+    except (KeyError, TypeError, ValueError):
+        sys.exit("raw/ownerrez_meta.json has no fetched_at timestamp. Refusing to build.")
+    if fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=timezone.utc)
+    minutes = int((now - fetched).total_seconds() // 60)
+    if minutes < 0:
+        minutes = 0
+    stale = minutes > MAX_DATA_AGE_MINUTES
+    if stale and os.environ.get("KAMMI_ALLOW_STALE") != "1":
+        hours, mins = divmod(minutes, 60)
+        sys.exit(
+            f"OwnerRez data is {hours}h {mins}m old (fetched {meta['fetched_at']}). "
+            "Refusing to render it as current. Re-run fetch/ownerrez.py against the "
+            "live API. Set KAMMI_ALLOW_STALE=1 only to inspect the old file."
+        )
+    return meta, minutes, stale, fetched
+
+
+def build(raw=None, out=None, today=None, now=None):
+    raw = raw or RAW
+    out = out or OUT
+    today = today or date.today()
+    now = now or datetime.now(timezone.utc)
+    meta, book_minutes, stale, fetched = read_ownerrez_meta(raw, now)
+
+    def read_json(name, default):
+        path = raw / f"{name}.json"
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text())
+        except json.JSONDecodeError:
+            return default
+
+    props = read_json("ownerrez_properties", [])
+    bookings = read_json("ownerrez_bookings", [])
+    pipeline = read_json("ghl_pipeline", {})
+    issues = read_json("maintenance", [])
+
+    props = [p for p in props if property_is_active(p)]
+    active_ids = {str(p.get("id")) for p in props}
+    active = [
+        b for b in bookings
+        if counts_as_booked(b) and str(b.get("property_id")) in active_ids
+    ]
 
     # --- Block 1: today's movements -------------------------------------
     arrivals, departures = [], []
@@ -79,7 +155,7 @@ def build():
         if arr == today:
             arrivals.append({
                 "property": name,
-                "guest": b.get("guest_name") or "Guest",
+                "guest": guest_name(b),
                 "nights": (dep - arr).days if arr and dep else None,
                 "booking_id": b.get("id"),
                 "checkin": b.get("check_in") or "15:00",
@@ -176,10 +252,13 @@ def build():
     exceptions = exceptions[:8]
 
     ops = {
-        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "updated": datetime.now(ZoneInfo("Europe/London")).isoformat(timespec="seconds"),
+        "generated": now.isoformat(timespec="seconds"),
+        "updated": fetched.astimezone(ZoneInfo("Europe/London")).isoformat(timespec="seconds"),
+        "fetched_at": fetched.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "date": today.isoformat(),
-        "data_age_minutes": int(book_age.total_seconds() / 60) if book_age else None,
+        "data_age_minutes": book_minutes,
+        "stale": stale,
+        "inactive_properties": list(meta.get("inactive_properties") or []),
         "arrivals": sorted(arrivals, key=lambda x: x["checkin"]),
         "departures": sorted(departures, key=lambda x: x["checkout"]),
         "exceptions": exceptions,
@@ -190,11 +269,18 @@ def build():
         "counts": counts,
     }
 
-    OUT.mkdir(exist_ok=True)
-    (OUT / "ops.json").write_text(json.dumps(ops, indent=1))
+    out.mkdir(exist_ok=True)
+    (out / "ops.json").write_text(json.dumps(ops, indent=1))
     print(f"built  {ops['counts']['critical']} critical  "
           f"{ops['counts']['watch']} watch  "
-          f"{len(arrivals)} arrivals  {len(departures)} departures")
+          f"{len(arrivals)} arrivals  {len(departures)} departures  "
+          f"data {book_minutes}m old")
+    print(f"portfolio {int(round(portfolio_occ * 100))}%")
+    for row in pacing:
+        print(f"  {int(round(row['occupancy'] * 100)):3d}%  {row['nights']:2d}n  {row['property']}")
+    skipped = ops["inactive_properties"]
+    if skipped:
+        print("excluded inactive: " + ", ".join(skipped))
     return ops
 
 

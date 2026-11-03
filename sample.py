@@ -10,15 +10,15 @@ today = date.today()
 now = datetime.now(timezone.utc)
 
 props = [
-    {"id": 1, "name": "Crosshall Street"},
-    {"id": 2, "name": "Duke Street 2B"},
-    {"id": 3, "name": "Ancoats Loft"},
-    {"id": 4, "name": "Deansgate Studio"},
-    {"id": 5, "name": "Baltic Triangle"},
-    {"id": 6, "name": "Northern Quarter 4"},
-    {"id": 7, "name": "Salford Quays 11"},
-    {"id": 8, "name": "Ropewalks 3A"},
-    {"id": 9, "name": "Castlefield 6"},
+    {"id": 1, "name": "Crosshall Street", "active": True},
+    {"id": 2, "name": "Duke Street 2B", "active": True},
+    {"id": 3, "name": "Ancoats Loft", "active": True},
+    {"id": 4, "name": "Deansgate Studio", "active": True},
+    {"id": 5, "name": "Baltic Triangle", "active": True},
+    {"id": 6, "name": "Northern Quarter 4", "active": True},
+    {"id": 7, "name": "Salford Quays 11", "active": True},
+    {"id": 8, "name": "Ropewalks 3A", "active": True},
+    {"id": 9, "name": "Castlefield 6", "active": True},
 ]
 
 def bk(i, pid, start, nights, guest, status="active", cleaner=None):
@@ -30,6 +30,7 @@ def bk(i, pid, start, nights, guest, status="active", cleaner=None):
         "arrival": (today + timedelta(days=start)).isoformat(),
         "departure": (today + timedelta(days=start + nights)).isoformat(),
         "status": status,
+        "type": "booking",
         "check_in": "15:00",
         "check_out": "10:00",
     }
@@ -86,4 +87,10 @@ for name, data in [("ownerrez_properties", props), ("ownerrez_bookings", booking
                    ("messages", messages),
                    ("maintenance", maintenance), ("ghl_pipeline", pipeline)]:
     (RAW / f"{name}.json").write_text(json.dumps(data, indent=1))
+(RAW / "ownerrez_meta.json").write_text(json.dumps({
+    "ok": True,
+    "fetched_at": now.isoformat(timespec="seconds"),
+    "inactive_properties": ["34 Beeston St"],
+    "booking_count": len(bookings),
+}, indent=1))
 print(f"sample data written to {RAW}")

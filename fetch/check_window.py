@@ -3,13 +3,21 @@ from datetime import datetime
 import os
 import sys
 
-# Manual (workflow_dispatch) runs always bypass the window, so a test run
-# gives a real signal instead of a silent skip. Scheduled/cron runs, and
-# local runs (no GITHUB_EVENT_NAME set), keep the window gate as-is.
-if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-    print("Manual run: bypassing operating-window check.")
-else:
-    _now = datetime.now(ZoneInfo("Europe/London"))
-    if not (6 <= _now.hour < 22):
-        print(f"Outside operating window ({_now.strftime('%H:%M %Z')}), skipping.")
-        sys.exit(1)
+# Exit 0 to run the pipeline, 2 to skip quietly (outside 06:00–22:00 London).
+# Any other non-zero exit is a real failure. Manual workflow_dispatch runs
+# always bypass the window, so a test run gives a real signal.
+def main(now=None, event_name=None):
+    event_name = os.environ.get("GITHUB_EVENT_NAME") if event_name is None else event_name
+    if event_name == "workflow_dispatch":
+        print("Manual run: bypassing operating-window check.")
+        return 0
+    now = now or datetime.now(ZoneInfo("Europe/London"))
+    if not (6 <= now.hour < 22):
+        print(f"Outside operating window ({now.strftime('%H:%M %Z')}), skipping.")
+        return 2
+    print(f"Inside operating window ({now.strftime('%H:%M %Z')}).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

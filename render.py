@@ -1,6 +1,8 @@
 """Render out/ops.json into out/index.html. Static file, no framework,
 no runtime dependencies."""
 import json
+import os
+import sys
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -26,6 +28,8 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 .wrap{max-width:760px; margin:0 auto; padding:28px 20px 72px}
+.banner{background:var(--critical); color:#fff; font-weight:650;
+  padding:12px 14px; border-radius:8px; margin:0 0 16px}
 .updated{display:inline-flex; align-items:center; gap:6px; font-size:13px;
   font-weight:640; padding:4px 11px; border-radius:999px; margin:0 0 14px;
   background:var(--band); color:var(--calm)}
@@ -135,10 +139,15 @@ JS = """
     var updatedAt = new Date(updatedEl.getAttribute('data-updated'));
     var renderUpdated = function(){
       var mins = Math.round((Date.now() - updatedAt.getTime()) / 60000);
-      var label = mins <= 0 ? 'just now' : mins === 1 ? '1 minute ago' : mins + ' minutes ago';
-      updatedEl.textContent = 'Updated ' + label;
+      var label;
+      if (mins <= 0) { label = 'Data just now'; }
+      else if (mins === 1) { label = 'Data 1 minute ago'; }
+      else if (mins < 90) { label = 'Data ' + mins + ' minutes ago'; }
+      else if (mins < 2880) { label = 'Data ' + Math.round(mins / 60) + ' hours ago'; }
+      else { label = 'Data ' + Math.round(mins / 1440) + ' days ago'; }
+      updatedEl.textContent = label;
       updatedEl.classList.remove('amber', 'red');
-      if (mins >= 60) { updatedEl.classList.add('red'); }
+      if (mins >= 90) { updatedEl.classList.add('red'); }
       else if (mins >= 20) { updatedEl.classList.add('amber'); }
     };
     renderUpdated();
@@ -231,8 +240,9 @@ JS = """
 
 def verdict(ops):
     c, w = ops["counts"]["critical"], ops["counts"]["watch"]
+    nprops = len(ops.get("pacing") or [])
     if c == 0 and w == 0:
-        return "Nothing needs you.", "Nine listings, no exceptions. Go and sign the tenth.", True
+        return "Nothing needs you.", f"{nprops} listings, no exceptions.", True
     if c == 0:
         return f"{w} thing{'s' if w > 1 else ''} to watch.", "Nothing is broken. Check these before they are.", False
     first_in = ops["arrivals"][0]["checkin"] if ops["arrivals"] else None
@@ -242,12 +252,27 @@ def verdict(ops):
     return f"{n} you{by}.", f"Everything else is running.{tail}", False
 
 
+def freshness(age):
+    if age is None:
+        return "Data age unknown", "red"
+    if age <= 0:
+        return "Data just now", ""
+    if age < 90:
+        tone = "amber" if age >= 20 else ""
+        unit = "minute" if age == 1 else "minutes"
+        return f"Data {age} {unit} ago", tone
+    if age < 60 * 48:
+        return f"Data {age // 60} hours ago", "red"
+    return f"Data {age // 1440} days ago", "red"
+
+
 def render(ops):
     head, sub, clear = verdict(ops)
     day = datetime.fromisoformat(ops["date"]).strftime("%d %B %Y")
     gen = datetime.fromisoformat(ops["generated"]).strftime("%H:%M")
     age = ops.get("data_age_minutes")
-    stale = age is not None and age > 90
+    stale = bool(ops.get("stale")) or age is None or age > 90
+    fresh_txt, tone = freshness(age)
     if age is None:
         age_txt = "data age unknown"
     elif stale:
@@ -255,12 +280,17 @@ def render(ops):
     else:
         age_txt = f"data {age}m old"
     meta_txt = f"built {gen} · {age_txt}"
+    badge_class = "updated" + (f" {tone}" if tone else "")
 
-    h = [f'<div class="updated" id="last-updated" data-updated="{escape(ops["updated"])}">'
-         f'Updated just now</div>',
-         f'<div class="meta"><span>{day}</span><span>{meta_txt}</span></div>',
-         f'<h1 class="verdict{" clear" if clear else ""}">{escape(head)}</h1>',
-         f'<p class="sub">{escape(sub)}</p>']
+    h = []
+    if stale:
+        h.append('<p class="banner">This dashboard is not current. '
+                 'The numbers below are from an old OwnerRez fetch and must not be used.</p>')
+    h.append(f'<div class="{badge_class}" id="last-updated" data-updated="{escape(ops.get("fetched_at") or ops["updated"])}">'
+             f'{escape(fresh_txt)}</div>')
+    h.append(f'<div class="meta"><span>{day}</span><span>{meta_txt}</span></div>')
+    h.append(f'<h1 class="verdict{" clear" if clear else ""}">{escape(head)}</h1>')
+    h.append(f'<p class="sub">{escape(sub)}</p>')
 
     h.append("<h2>Needs a decision</h2>")
     if ops["exceptions"]:
@@ -332,8 +362,13 @@ def render(ops):
     h.append(f'<p class="sub" style="margin:14px 0 0">'
              f'{pipe["new"]} new this week. Gone quiet: {stale_names}.</p>')
 
-    h.append('<p class="foot">Built from OwnerRez. '
+    h.append('<p class="foot">Built from active OwnerRez properties. '
+             'Confirmed guest and owner stays only. '
              'If a number here looks wrong, the source is wrong. Fix the source.</p>')
+    inactive = [name for name in ops.get("inactive_properties") or [] if name]
+    if inactive:
+        h.append('<p class="foot">Inactive in OwnerRez, not shown: '
+                 + escape(", ".join(inactive)) + '.</p>')
 
     data_json = json.dumps({
         "pacing": [{"property": p["property"], "nights": p["nights"], "occupancy": p["occupancy"]}
@@ -356,5 +391,13 @@ def render(ops):
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
     ops = json.loads((OUT / "ops.json").read_text())
+    age = ops.get("data_age_minutes")
+    stale = bool(ops.get("stale")) or age is None or age > 90
+    if stale and os.environ.get("KAMMI_ALLOW_STALE") != "1":
+        sys.exit(
+            f"refusing to render a stale dashboard (data_age_minutes={age}). "
+            "Fetch live OwnerRez data first. The previous page treated a cached "
+            "dump as current; this one will not."
+        )
     (OUT / "index.html").write_text(render(ops))
     print(f"rendered {OUT / 'index.html'}")

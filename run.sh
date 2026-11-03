@@ -5,9 +5,15 @@ set -uo pipefail
 cd "$(dirname "$0")"
 [ -f .env ] && set -a && . ./.env && set +a
 
-python3 fetch/check_window.py || exit 0
+python3 fetch/check_window.py
+status=$?
+if [ "$status" -eq 2 ]; then
+  exit 0
+elif [ "$status" -ne 0 ]; then
+  exit "$status"
+fi
 
-python3 fetch/ownerrez.py || echo "ownerrez fetch failed, using last dump" >&2
+python3 fetch/ownerrez.py || { echo "ownerrez fetch failed; not building from cached raw/" >&2; exit 1; }
 python3 fetch/maintenance.py || echo "maintenance fetch failed, using last dump" >&2
 
 python3 build.py  || { echo "build failed" >&2; exit 1; }
