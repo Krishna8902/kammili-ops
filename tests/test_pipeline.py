@@ -29,7 +29,7 @@ def stay(pid, arrival, departure, status="active", kind="booking", bid=1):
         "type": kind,
         "check_in": "15:00",
         "check_out": "10:00",
-        "guest": {"first_name": "Olivia", "last_name": "Stott"},
+        "guest": {"first_name": "Ada", "last_name": "Example"},
     }
 
 
@@ -114,7 +114,7 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(by_name["Studio 7"]["nights"], 3)
         self.assertEqual(by_name["8 Bilsborrow Road"]["nights"], 2)
         self.assertEqual(ops["arrivals"][0]["property"], "Studio 6")
-        self.assertEqual(ops["arrivals"][0]["guest"], "Olivia Stott")
+        self.assertEqual(ops["arrivals"][0]["guest"], "Ada Example")
         self.assertEqual(ops["inactive_properties"], ["34 Beeston St"])
         self.assertFalse(ops["stale"])
         self.assertEqual(ops["data_age_minutes"], 0)
@@ -155,6 +155,10 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(window_main(now=night, event_name="pull_request"), 0)
         afternoon = datetime(2026, 11, 3, 13, 40, tzinfo=timezone.utc)
         self.assertEqual(window_main(now=afternoon, event_name="schedule"), 0)
+        before_open = datetime(2026, 11, 3, 6, 30, tzinfo=timezone.utc)
+        self.assertEqual(window_main(now=before_open, event_name="schedule"), 2)
+        at_open = datetime(2026, 11, 3, 7, 0, tzinfo=timezone.utc)
+        self.assertEqual(window_main(now=at_open, event_name="schedule"), 0)
 
 
 if __name__ == "__main__":

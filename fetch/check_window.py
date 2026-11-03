@@ -3,7 +3,8 @@ from datetime import datetime
 import os
 import sys
 
-# Exit 0 to run the pipeline, 2 to skip quietly (outside 06:00–22:00 London).
+# Exit 0 to run the pipeline, 2 to skip quietly (outside 07:00–22:00 London).
+# 22:00 is 10pm, so the window is 7am up to but not including 10pm.
 # Any other non-zero exit is a real failure. Manual dispatches and pull
 # requests always bypass the window, so a test run gives a real signal.
 def main(now=None, event_name=None):
@@ -12,7 +13,7 @@ def main(now=None, event_name=None):
         print(f"{event_name}: bypassing operating-window check.")
         return 0
     now = now or datetime.now(ZoneInfo("Europe/London"))
-    if not (6 <= now.hour < 22):
+    if not (7 <= now.hour < 22):
         print(f"Outside operating window ({now.strftime('%H:%M %Z')}), skipping.")
         return 2
     print(f"Inside operating window ({now.strftime('%H:%M %Z')}).")

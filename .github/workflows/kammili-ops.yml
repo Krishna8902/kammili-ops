@@ -1,11 +1,11 @@
 name: kammili-ops
 on:
   schedule:
-    # Every 30 minutes from 06:00 through 21:30 UTC. The London window is
-    # 06:00–22:00. Hour 22 UTC is always outside that window (22:00 GMT, or
-    # 23:00 during British Summer Time). Those runs used to skip the build
-    # with exit 0, then fail the Pages deploy because out/ did not exist.
-    - cron: '*/30 6-21 * * *'
+    # Every 2 hours from 07:00 through 21:00 UTC. In winter that is 7am–9pm
+    # UK. In summer the same UTC slots are 8am–10pm BST; the London gate
+    # below drops 22:00 BST, so the last summer run is 8pm UK. Together
+    # with fetch/check_window.py this stays inside 7am–10pm London.
+    - cron: '0 7-21/2 * * *'
   workflow_dispatch: {}
   pull_request:
 
@@ -69,7 +69,20 @@ jobs:
           retention-days: 5
           if-no-files-found: error
 
-      # Cloudflare Pages deploy is intentionally off. The previous step
-      # published this dashboard to a public *.pages.dev URL. Turn it back
-      # on only after access is limited to the team (see the pull request).
-      # Secrets that step used: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
+      # The site is behind Cloudflare Access. Git builds are turned off first
+      # so a push cannot publish the raw repo (no index.html, no OwnerRez
+      # secrets). Wrangler then uploads the out/ directory this job built.
+      - name: Stop Git builds from overwriting the site
+        if: steps.window.outputs.run == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python scripts/cloudflare_pages.py
+
+      - name: Deploy to Cloudflare Pages
+        if: steps.window.outputs.run == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy out --project-name=kammili-ops --branch=main --commit-dirty=true
